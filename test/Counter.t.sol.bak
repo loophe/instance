@@ -7,6 +7,8 @@ import "../src/IFlashLoanReceiver.sol";
 import "../src/IERC20.sol";
 import "../src/IUniswapV2Router.sol";
 import "../src/IUniswapV2Pair.sol";
+import "../src/IV3SwapRouter.sol";
+
 
 interface IWETH is IERC20 {
     function withdraw (uint256 _wag) external;
@@ -29,7 +31,8 @@ contract CounterTest is  IFlashLoanReceiver, Test {
     address public PAIR = 0x83122b284E4dA41dEcAD8450120fDa258138d9c6;
 
     address public AAVE_POOLV2 = 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9;//Main  
-    address public uniswapRouterV202 = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
+    // address public uniswapRouterV202 = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
+    address public _swapRouter = 0xE592427A0AEce92De3Edee1F18E0157C05861564;//Main
 
 
     ILendingPool flashPool = ILendingPool(AAVE_POOLV2);// AAVE pool V2
