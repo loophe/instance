@@ -59,6 +59,7 @@ contract CounterTest is Test{
 
     
     function setUp() public {
+        
         bot = new DropAttacker();
     
     }
