@@ -4,10 +4,9 @@ out = 'out'
 libs = ['lib']
 #tx_origin = '0x08908a69D3Ff4C42DcF5ddA856e25f3602e7f37A'
 sender = '0x08908a69D3Ff4C42DcF5ddA856e25f3602e7f37A'
-#eth-rpc-url = "http://65.109.92.93:8547" 
-eth-rpc-url = "http://65.109.115.133:1231"
+
 #eth-rpc-url = "https://polished-skilled-emerald.quiknode.pro/1326276633f571900198e5cdf256d131c0710e7d"
 #eth-rpc-url = "https://polygon-mainnet.g.alchemy.com/v2/HEBajl6maGWrqrixF6DHFXGg4P_YipgX"
-fork_block_number = 17060500
+#fork_block_number = 17060500
 #fork_block_number = 16609060
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config
